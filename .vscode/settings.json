@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "/home/abdurrahman/software-engineering-agent/venv/bin/python",
+  "python.analysis.extraPaths": [
+    "."
+  ]
+}
