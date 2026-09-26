@@ -1,6 +1,32 @@
+# Python
 venv/
-.env 
-__pycache__/
-*.pyc
-repos/
 .venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.eggs/
+*.egg-info/
+
+# Environment
+.env
+
+# Cloned repos (large, not part of the agent source)
+repos/
+
+# Vector store runtime data
+qdrant_storage/
+
+# SQLite runtime DB (use agent_memory.db.example to document schema)
+agent_memory.db
+
+# Jupyter notebooks (experimental, not part of core)
+src/Embedding/
+
+# Pytest cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
