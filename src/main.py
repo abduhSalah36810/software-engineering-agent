@@ -24,4 +24,7 @@ def call_the_agent(initialstate: InitialState):
         "plan": result.get("plan"),
         "modified_files": result.get("modified_files"),
         "test_passed": result.get("test_passed"),
+        "investigation": result.get("investigation"),
+        "test_output": result.get("test_output"),
+        "indexed_document_count": result.get("indexed_document_count"),
     }

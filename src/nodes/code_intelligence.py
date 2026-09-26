@@ -26,4 +26,6 @@ def code_intelligence(state):
     documents = indexer.index(repo_path)
     print("After indexing")
 
-    return state
+    return {
+        "indexed_document_count": len(documents),
+    }
