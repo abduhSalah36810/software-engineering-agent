@@ -37,7 +37,9 @@ def repository_discovery(state: AgentState) -> dict:
 
         last_known = change_records[0]["commit_hash"] if change_records else None
 
-        if git_ctx.head_commit and git_ctx.head_commit == last_known:
+        if not git_ctx.is_git_repo:
+            print("Non-git repository -- running fresh discovery")
+        elif git_ctx.head_commit and git_ctx.head_commit == last_known:
             print("Git HEAD unchanged -- reusing cached profile")
             print()
             print("=" * 60)

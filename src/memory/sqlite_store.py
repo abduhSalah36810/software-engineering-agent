@@ -254,3 +254,20 @@ class EngineeringMemoryStore:
                 r["result"] = json.loads(r["result_json"]) if r["result_json"] else None
                 result.append(r)
             return result
+
+    # ─── History & Identity ──────────────────────────────────────────────────
+
+    def has_engineering_history(self, repo_identity: str) -> bool:
+        """
+        Check if any engineering history exists for this repository identity
+        across repo_profiles, change_records, decisions, or investigations.
+        """
+        with self._connect() as conn:
+            for table in ("repo_profiles", "change_records", "decisions", "investigations"):
+                row = conn.execute(
+                    f"SELECT 1 FROM {table} WHERE repo_name = ? LIMIT 1",
+                    (repo_identity,),
+                ).fetchone()
+                if row is not None:
+                    return True
+        return False

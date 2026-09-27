@@ -5,11 +5,16 @@ import pytest
 
 MODULES = [
     "src.state",
+    "src.models",
     "src.models.repo_profile",
+    "src.models.assessment",
     "src.memory.sqlite_store",
     "src.helpers.embedding.client",
     "src.helpers.repo_discovery",
     "src.helpers.git_context",
+    "src.helpers.repository_assessment",
+    "src.helpers.project_stage",
+    "src.helpers.incremental_change",
     "src.helpers.qdrant.store",
     "src.helpers.indexer",
     "src.helpers.symbol_extractor",

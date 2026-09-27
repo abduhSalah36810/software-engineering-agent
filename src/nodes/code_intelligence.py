@@ -7,10 +7,15 @@ from src.helpers.tree_parcer import CodeParser
 from src.helpers.indexer import Indexer
 
 
+import os
+
 def code_intelligence(state):
     print("Code Intelligence started 🧠")
 
-    repo_path = state["repo_path"]
+    repo_path = state.get("repo_path")
+    if not repo_path or not os.path.exists(repo_path):
+        print("Warning: repo_path missing or does not exist -- skipping indexing")
+        return {"indexed_document_count": 0}
     repo_name = state.get("repo_name") or repo_path
     store = QdrantStore(repo_name)
 

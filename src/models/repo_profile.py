@@ -39,6 +39,10 @@ class Finding:
     def to_dict(self) -> dict:
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "Finding":
+        return cls(**data)
+
 
 @dataclass
 class TechnologyEntry:
@@ -51,6 +55,10 @@ class TechnologyEntry:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TechnologyEntry":
+        return cls(**data)
 
 
 @dataclass
@@ -91,11 +99,26 @@ class RepoProfile:
     @classmethod
     def from_dict(cls, data: dict) -> "RepoProfile":
         data = data.copy()
-        data["frameworks"] = [TechnologyEntry(**f) for f in data.get("frameworks", [])]
-        data["databases"] = [TechnologyEntry(**d) for d in data.get("databases", [])]
-        data["caching"] = [TechnologyEntry(**c) for c in data.get("caching", [])]
-        data["message_queues"] = [TechnologyEntry(**m) for m in data.get("message_queues", [])]
-        data["findings"] = [Finding(**f) for f in data.get("findings", [])]
+        data["frameworks"] = [
+            f if isinstance(f, TechnologyEntry) else TechnologyEntry.from_dict(f)
+            for f in data.get("frameworks", [])
+        ]
+        data["databases"] = [
+            d if isinstance(d, TechnologyEntry) else TechnologyEntry.from_dict(d)
+            for d in data.get("databases", [])
+        ]
+        data["caching"] = [
+            c if isinstance(c, TechnologyEntry) else TechnologyEntry.from_dict(c)
+            for c in data.get("caching", [])
+        ]
+        data["message_queues"] = [
+            m if isinstance(m, TechnologyEntry) else TechnologyEntry.from_dict(m)
+            for m in data.get("message_queues", [])
+        ]
+        data["findings"] = [
+            f if isinstance(f, Finding) else Finding.from_dict(f)
+            for f in data.get("findings", [])
+        ]
         return cls(**data)
 
     def summary(self) -> str:
@@ -171,3 +194,7 @@ class RepoProfile:
 
         lines.append(sep)
         return "\n".join(lines)
+
+
+# Re-export assessment models for convenient access from model package
+from src.models.assessment import CodeHealthReport, EngineeringAssessment, ProjectStageInference  # noqa: E402

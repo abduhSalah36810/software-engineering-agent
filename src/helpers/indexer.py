@@ -46,7 +46,7 @@ class Indexer:
                 ) as file:
                     code = file.read()
 
-            except (UnicodeDecodeError, FileNotFoundError) as e:
+            except (UnicodeDecodeError, OSError) as e:
                 print(
                     f"Skipping unreadable file {file_path}: {e}"
                 )
