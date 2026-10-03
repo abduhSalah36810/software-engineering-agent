@@ -23,6 +23,7 @@ class AgentState(TypedDict):
     # ── Repository loader ────────────────────────────────────────────────────
     repo_path: str | None
     repo_name: str | None
+    repo_id: str | None
     file_tree: str | None
 
     # ── Repository discovery (Phase 1) ───────────────────────────────────────

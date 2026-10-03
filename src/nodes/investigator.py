@@ -12,9 +12,11 @@ Does NOT call the LLM -- that is the coder's job.
 The investigator prepares a rich, evidence-backed context package.
 """
 
+from pathlib import Path
 from src.helpers.embedding.client import EmbeddingClient
 from src.helpers.qdrant.store import QdrantStore
 from src.helpers.git_context import get_git_context
+from src.helpers.repo import get_canonical_repo_id
 from src.memory.sqlite_store import EngineeringMemoryStore
 from src.models.repo_profile import RepoProfile
 from src.state import AgentState
@@ -23,12 +25,13 @@ from src.state import AgentState
 def investigator(state: AgentState) -> dict:
     print("Investigator running...")
 
-    repo_name = state.get("repo_name") or state.get("repo_path", "unknown")
     repo_path = state.get("repo_path", "")
+    repo_id = state.get("repo_id") or (get_canonical_repo_id(repo_path) if repo_path else "unknown")
+    repo_name = state.get("repo_name") or (Path(repo_path).name if repo_path else "unknown")
     problem = state["problem"]
     repo_profile_dict = state.get("repo_profile")
 
-    # ── 1. Semantic search ──────────────────────────────────────────────────
+    # ── 1. Semantic search (uses display name for Qdrant collection) ───────
     client = EmbeddingClient()
     store = QdrantStore(repo_name)
 
@@ -41,17 +44,25 @@ def investigator(state: AgentState) -> dict:
     for chunk in retrieved_chunks[:3]:
         print(f"  -> {chunk.get('file')} [{chunk.get('symbol')}]")
 
-    # ── 2. Engineering memory context ───────────────────────────────────────
+    # ── 2. Engineering memory context (uses canonical repo_id) ────────────
     memory = EngineeringMemoryStore()
 
-    past_investigations = memory.load_investigations(repo_name, limit=5)
-    decisions = memory.load_decisions(repo_name)
-    recent_changes = memory.load_change_records(repo_name, limit=10)
+    past_investigations = memory.load_investigations(repo_id, limit=5)
+    if not past_investigations and repo_name and repo_name != repo_id:
+        past_investigations = memory.load_investigations(repo_name, limit=5)
+
+    decisions = memory.load_decisions(repo_id)
+    if not decisions and repo_name and repo_name != repo_id:
+        decisions = memory.load_decisions(repo_name)
+
+    recent_changes = memory.load_change_records(repo_id, limit=10)
+    if not recent_changes and repo_name and repo_name != repo_id:
+        recent_changes = memory.load_change_records(repo_name, limit=10)
 
     print(f"Memory: {len(past_investigations)} past investigations, "
           f"{len(decisions)} decisions, {len(recent_changes)} change records")
 
-    # ── 3. Git context ───────────────────────────────────────────────────────
+    # ── 3. Git context ───────────────────────────────────────────────────
     last_known_commit = None
     if recent_changes:
         last_known_commit = recent_changes[0].get("commit_hash")

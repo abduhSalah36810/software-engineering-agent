@@ -143,12 +143,11 @@ class IncrementalChangeDetector:
         self.repo_path = repo_path
         self.memory = memory
         # Canonical repository identity: canonical absolute path string
+        from src.helpers.repo import get_canonical_repo_id
         if repo_id:
-            self.repo_id = repo_id
-        elif repo_path and os.path.exists(repo_path):
-            self.repo_id = str(Path(repo_path).resolve().absolute())
+            self.repo_id = get_canonical_repo_id(repo_id)
         elif repo_path:
-            self.repo_id = str(Path(repo_path).absolute())
+            self.repo_id = get_canonical_repo_id(repo_path)
         else:
             self.repo_id = "unknown"
 

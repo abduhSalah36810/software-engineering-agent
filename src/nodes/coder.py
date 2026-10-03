@@ -5,15 +5,17 @@ Uses investigation context (repo profile, retrieved code, git state, past invest
 to drive an LLM-powered tool loop that:
   1. Reads actual files before deciding anything
   2. Produces a structured CoderAnalysis (root_cause, plan, files_to_modify)
-  3. Persists the investigation result to SQLite engineering memory
+  3. Persists the investigation result to SQLite engineering memory under canonical repo_id
 
 Tool loop is capped at 5 iterations to prevent runaway calls.
 """
 
 import json
+from pathlib import Path
 from src.state import AgentState
 from src.helpers.llm import llm
 from src.tools.file_operations import read_file
+from src.helpers.repo import get_canonical_repo_id
 from src.memory.sqlite_store import EngineeringMemoryStore
 
 from pydantic import BaseModel
@@ -32,7 +34,7 @@ def coder(state: AgentState) -> dict:
 
     problem = state["problem"]
     repo_path = state.get("repo_path", "")
-    repo_name = state.get("repo_name") or repo_path
+    repo_id = state.get("repo_id") or (get_canonical_repo_id(repo_path) if repo_path else "unknown")
     investigation = state.get("investigation") or {}
     retrieved_chunks = state.get("retrieved_chunks") or []
 
@@ -139,10 +141,10 @@ Do not invent information.
     print("\nPlan:", analysis.plan)
     print("\nFiles:", analysis.files_to_modify)
 
-    # ── Persist to engineering memory ─────────────────────────────────────
+    # ── Persist to engineering memory using canonical repo_id ──────────────
     memory = EngineeringMemoryStore()
     memory.save_investigation(
-        repo_name=repo_name,
+        repo_name=repo_id,
         problem=problem,
         root_cause=analysis.root_cause,
         plan=analysis.plan,

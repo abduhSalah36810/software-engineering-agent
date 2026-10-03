@@ -1,8 +1,23 @@
 import os
 import subprocess
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def get_canonical_repo_id(repo_path: str | Path | None) -> str:
+    """
+    Returns the canonical repository identity as a resolved, stable absolute path string.
+
+    Examples:
+        "."                                     -> "/home/abdurrahman/software-engineering-agent"
+        "/path/to/repo/../repo"                 -> "/path/to/repo"
+        Path("/path/to/repo")                   -> "/path/to/repo"
+    """
+    if not repo_path:
+        return "unknown"
+    return str(Path(repo_path).resolve())
 
 
 def clone_repo(url: str) -> str:
