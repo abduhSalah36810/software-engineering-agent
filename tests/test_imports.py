@@ -15,6 +15,7 @@ MODULES = [
     "src.helpers.repository_assessment",
     "src.helpers.project_stage",
     "src.helpers.incremental_change",
+    "src.helpers.affected_dimensions",
     "src.helpers.qdrant.store",
     "src.helpers.indexer",
     "src.helpers.symbol_extractor",

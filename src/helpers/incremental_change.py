@@ -1,5 +1,5 @@
 """
-Incremental Engineering Intelligence - Foundation Component (Phase 4.1 + 4.2).
+Incremental Engineering Intelligence - Foundation Component (Phase 4.1 + 4.2 + 4.3).
 
 Responsible for detecting changes that occurred since the last known
 engineering state (HEAD vs previous commit in memory) and separating
@@ -32,31 +32,40 @@ from src.helpers.git_context import (
     get_git_working_tree_status,
 )
 from src.memory.sqlite_store import EngineeringMemoryStore
-
-
-def _canonical_repo_id(repo_path: str | None) -> str:
-    """Return the canonical absolute path as the primary repository identity."""
-    if not repo_path:
-        return "unknown"
-    try:
-        return str(Path(repo_path).resolve().absolute())
-    except Exception:
-        return os.path.abspath(repo_path)
+from src.helpers.affected_dimensions import (
+    AffectedDimension,
+    AffectedDimensionsResult,
+    AffectedDimensionClassifier,
+    detect_affected_dimensions,
+)
 
 
 def _is_commit_reachable(repo_path: str, commit_hash: str) -> bool:
-    """Check if a commit hash exists and is reachable in this git repository."""
-    if not repo_path or not commit_hash:
-        return False
+    """
+    Deterministically checks if commit_hash exists and is reachable
+    in the git repository using git cat-file and git merge-base.
+    """
     try:
-        r = subprocess.run(
-            ["git", "cat-file", "-e", f"{commit_hash}^{{commit}}"],
+        # Check object existence and type
+        res = subprocess.run(
+            ["git", "cat-file", "-t", commit_hash],
             cwd=repo_path,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=5,
         )
-        return r.returncode == 0
+        if res.returncode != 0 or res.stdout.strip() != "commit":
+            return False
+
+        # Verify reachability from current HEAD
+        res_merge = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", commit_hash, "HEAD"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return res_merge.returncode == 0
     except Exception:
         return False
 
@@ -82,6 +91,10 @@ class IncrementalChangeResult:
     is_baseline_stale: bool = False
     requires_reverification: bool = False
     status: str = "ok"
+
+    def detect_affected_dimensions(self) -> AffectedDimensionsResult:
+        """Analyze which engineering dimensions are touched by these changes."""
+        return detect_affected_dimensions(self)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -128,19 +141,24 @@ class IncrementalChangeDetector:
         memory: EngineeringMemoryStore | None = None,
     ):
         self.repo_path = repo_path
-        self.repo_id = repo_id or _canonical_repo_id(repo_path)
-        self.repo_name = repo_name or (Path(repo_path).name if repo_path else "unknown")
         self.memory = memory
+        # Canonical repository identity: canonical absolute path string
+        if repo_id:
+            self.repo_id = repo_id
+        elif repo_path and os.path.exists(repo_path):
+            self.repo_id = str(Path(repo_path).resolve().absolute())
+        elif repo_path:
+            self.repo_id = str(Path(repo_path).absolute())
+        else:
+            self.repo_id = "unknown"
 
-    def detect_changes(
-        self,
-        since_commit: str | None = None,
-    ) -> IncrementalChangeResult:
+        self.repo_name = repo_name or (Path(repo_path).name if repo_path else "unknown")
+
+    def detect_changes(self, since_commit: str | None = None) -> IncrementalChangeResult:
         """
-        Detects changes since since_commit (or since the last recorded commit
-        in engineering memory for this canonical repository identity).
+        Calculates change delta separating committed history from working tree.
         """
-        # 1. Invalid or missing path
+        # 1. Validate repository path
         if not self.repo_path or not os.path.exists(self.repo_path):
             return IncrementalChangeResult(
                 repo_id=self.repo_id,
@@ -160,10 +178,10 @@ class IncrementalChangeDetector:
                 is_initial_baseline=False,
                 is_baseline_stale=False,
                 requires_reverification=False,
-                status="invalid_path",
+                status="path_not_found",
             )
 
-        # 2. Check Git repository
+        # 2. Check if git repository
         git_ctx = get_git_context(self.repo_path)
         if not git_ctx.is_git_repo:
             return IncrementalChangeResult(
@@ -381,3 +399,10 @@ class IncrementalChangeDetector:
             requires_reverification=False,
             status="changed" if has_committed else ("dirty" if is_dirty else "unchanged"),
         )
+
+    def detect_affected_dimensions(self, since_commit: str | None = None) -> AffectedDimensionsResult:
+        """
+        Runs change detection and returns the affected engineering dimensions.
+        """
+        change_result = self.detect_changes(since_commit=since_commit)
+        return detect_affected_dimensions(change_result, repo_path=self.repo_path)
