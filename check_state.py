@@ -34,6 +34,7 @@ check('nodes.code_intelligence', 'src.nodes.code_intelligence')
 check('nodes.investigator', 'src.nodes.investigator')
 check('nodes.coder', 'src.nodes.coder')
 check('nodes.tester', 'src.nodes.tester')
+check('nodes.incremental_nodes', 'src.nodes.incremental_nodes')
 check('graph', 'src.graph')
 check('main (fastapi)', 'src.main')
 

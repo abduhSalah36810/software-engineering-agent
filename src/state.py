@@ -10,12 +10,17 @@ repo_profile: dict representation of RepoProfile (from repository_discovery).
 investigation: structured investigation result from the investigator node.
                Keys: root_cause, affected_components, relevant_files,
                      architectural_implications, proposed_solution, risks, confidence
+
+incremental_change_result: IncrementalChangeResult or dict from incremental change detection.
+affected_dimensions_result: AffectedDimensionsResult or dict of touched dimensions.
+memory_invalidation_result: MemoryInvalidationResult or dict of invalidated knowledge items.
+incremental_understand_result: IncrementalUnderstandResult or dict of re-understood dimensions.
 """
 
-from typing import TypedDict
+from typing import TypedDict, Any
 
 
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     # ── Inputs ──────────────────────────────────────────────────────────────
     url: str
     problem: str
@@ -41,3 +46,11 @@ class AgentState(TypedDict):
     # ── Tester output ────────────────────────────────────────────────────────
     test_output: str | None
     test_passed: bool | None
+
+    # ── Incremental Pipeline (Phase 4.5) ─────────────────────────────────────
+    incremental_change_result: Any | None
+    affected_dimensions_result: Any | None
+    memory_invalidation_result: Any | None
+    incremental_understand_result: Any | None
+    since_commit: str | None
+    memory: Any | None

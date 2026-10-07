@@ -26,6 +26,7 @@ MODULES = [
     "src.nodes.investigator",
     "src.nodes.coder",
     "src.nodes.tester",
+    "src.nodes.incremental_nodes",
     "src.graph",
     "src.main",
 ]

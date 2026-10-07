@@ -15,7 +15,10 @@ from src.state import AgentState
 def repository_loader(state: AgentState) -> dict:
     print("Repository Loader running...")
 
-    repo_path = clone_repo(state["url"])
+    target = state.get("repo_path") or state.get("url")
+    if not target:
+        raise ValueError("Either 'url' or 'repo_path' must be provided in state")
+    repo_path = clone_repo(target)
     repo_name = extract_repo_name(repo_path)
     repo_id = get_canonical_repo_id(repo_path)
 
