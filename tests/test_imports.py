@@ -27,6 +27,12 @@ MODULES = [
     "src.nodes.coder",
     "src.nodes.tester",
     "src.nodes.incremental_nodes",
+    "src.tools",
+    "src.tools.models",
+    "src.tools.base",
+    "src.tools.fake",
+    "src.tools.terminal",
+    "src.tools.security",
     "src.graph",
     "src.main",
 ]

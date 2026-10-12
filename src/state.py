@@ -15,6 +15,9 @@ incremental_change_result: IncrementalChangeResult or dict from incremental chan
 affected_dimensions_result: AffectedDimensionsResult or dict of touched dimensions.
 memory_invalidation_result: MemoryInvalidationResult or dict of invalidated knowledge items.
 incremental_understand_result: IncrementalUnderstandResult or dict of re-understood dimensions.
+
+tool_request: ToolRequest or dict representation of a requested tool execution.
+tool_result: ToolResult or dict representation of the outcome of a tool execution.
 """
 
 from typing import TypedDict, Any
@@ -54,3 +57,7 @@ class AgentState(TypedDict, total=False):
     incremental_understand_result: Any | None
     since_commit: str | None
     memory: Any | None
+
+    # ── Tooling Foundation (Phase 5) ─────────────────────────────────────────
+    tool_request: Any | None
+    tool_result: Any | None
