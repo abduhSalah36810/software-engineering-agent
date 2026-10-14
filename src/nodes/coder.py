@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from src.state import AgentState
 from src.helpers.llm import llm
-from src.tools.file_operations import read_file
+from src.tools import default_registry, ToolRequest
 from src.helpers.repo import get_canonical_repo_id
 from src.memory.sqlite_store import EngineeringMemoryStore
 
@@ -65,11 +65,27 @@ def coder(state: AgentState) -> dict:
             for p in past[:3]
         )
 
-    # ── Tool definition ───────────────────────────────────────────────────
+    # ── Tool definition (wired to default_registry / FileSystemTool) ──────
+    last_tool_req = None
+    last_tool_res = None
+
     @tool
     def read_repo_file(file_path: str) -> str:
         """Read a file from the repository using a repository-relative path."""
-        return read_file.invoke({"repo_path": repo_path, "file_path": file_path})
+        nonlocal last_tool_req, last_tool_res
+        req = ToolRequest(
+            tool_name="filesystem",
+            operation="read_file",
+            arguments={"path": file_path},
+            context={"repo_path": repo_path},
+        )
+        res = default_registry.execute(req)
+        last_tool_req = req.to_dict()
+        last_tool_res = res.to_dict()
+        if not res.success:
+            return f"Error: {res.error}"
+        output = res.output or {}
+        return str(output.get("content", ""))
 
     tool_llm = llm.bind_tools([read_repo_file])
 
@@ -159,4 +175,6 @@ Do not invent information.
         "root_cause": analysis.root_cause,
         "plan": analysis.plan,
         "modified_files": analysis.files_to_modify,
+        "tool_request": last_tool_req,
+        "tool_result": last_tool_res,
     }

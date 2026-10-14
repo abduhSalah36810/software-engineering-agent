@@ -1,35 +1,29 @@
 """
-Phase 5 — Tooling & Capability Foundation Tests.
+Phase 5 — Tooling & Capability Foundation: Base Tool Adapter and Registry Tests.
 
-Validates the architecture of the Tooling layer:
-  Test A — Tool contract: Concrete tool satisfies BaseTool contract.
-  Test B — Request: ToolRequest creation, validation, and inspection.
-  Test C — Result: Successful ToolResult representation.
-  Test D — Failure: Failed ToolResult representation without fabricated success.
-  Test E — Provenance & Evidence: Raw result preserves metadata and does NOT become a decision.
-  Test F — Serialization: Request, Result, and Evidence round-trip serialization.
-  Test G — State integration: AgentState accommodates tool_request and tool_result.
-  Test H — No real execution: Guarantees zero subprocess or network calls.
-  Test I — Tool Registry: Registration, dispatch, and missing-tool safety.
-  Test J — Tool Safety Policy: Dangerous pattern rejection and read-only checks.
+Test suite validating:
+  - BaseTool abstract contract enforcement.
+  - ToolRequest, ToolResult, and ToolEvidence data structures.
+  - Result serialization and provenance immutability.
+  - FakeTool behavior for testing without side effects.
+  - ToolRegistry registration, query, and safe dispatch.
+  - AgentState compatibility with tool request/result fields.
+  - Zero subprocess/network execution guarantee for fake adapters.
+  - ToolSafetyPolicy unit validation (authorization, boundaries, command classification).
 """
 
+from __future__ import annotations
+
 import json
+from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
 from src.state import AgentState
-from src.tools.models import (
-    ToolRequest,
-    ToolResult,
-    ToolEvidence,
-)
-from src.tools.base import (
-    BaseTool,
-    ToolRegistry,
-    default_registry,
-)
+from src.tools.base import BaseTool, ToolRegistry
 from src.tools.fake import FakeTool
+from src.tools.models import ToolEvidence, ToolRequest, ToolResult
 from src.tools.security import ToolSafetyPolicy
 
 
@@ -37,13 +31,16 @@ from src.tools.security import ToolSafetyPolicy
 
 
 def test_A_tool_contract():
-    """Test A: A concrete tool satisfies the BaseTool contract."""
+    """Test A: A concrete tool satisfies the BaseTool contract and abstract class cannot be instantiated."""
     tool = FakeTool()
     assert isinstance(tool, BaseTool)
     assert tool.name == "fake_tool"
     assert len(tool.description) > 0
     assert hasattr(tool, "execute")
     assert hasattr(tool, "validate_request")
+
+    with pytest.raises(TypeError):
+        BaseTool()  # type: ignore[abstract]
 
 
 # ── Test B: Request ───────────────────────────────────────────────────────────
@@ -71,6 +68,21 @@ def test_B_tool_request_creation_and_validation():
     with pytest.raises(ValueError, match="operation"):
         ToolRequest(tool_name="fake_tool", operation="")
 
+    # Adapter-level validation
+    tool = FakeTool()
+    is_valid, error = tool.validate_request(req)
+    assert is_valid is True
+    assert error is None
+
+    is_valid, error = tool.validate_request("not_a_request")  # type: ignore
+    assert is_valid is False
+    assert "Expected ToolRequest" in error
+
+    req_mismatch = ToolRequest(tool_name="terminal", operation="execute")
+    is_valid, error = tool.validate_request(req_mismatch)
+    assert is_valid is False
+    assert "Tool name mismatch" in error
+
 
 # ── Test C: Result ────────────────────────────────────────────────────────────
 
@@ -90,6 +102,13 @@ def test_C_successful_tool_result():
     assert res.error is None
     assert res.metadata["execution_ms"] == 12
     assert "executed_at" in res.metadata
+
+    # Also verify concrete execution via FakeTool
+    tool = FakeTool()
+    exec_req = ToolRequest(tool_name="fake_tool", operation="echo", arguments={"message": "hello"})
+    exec_res = tool.execute(exec_req)
+    assert exec_res.success is True
+    assert exec_res.output == "hello"
 
 
 # ── Test D: Failure ───────────────────────────────────────────────────────────
@@ -279,8 +298,8 @@ def test_I_tool_registry_management_and_dispatch():
 # ── Test J: Tool Safety Policy ────────────────────────────────────────────────
 
 
-def test_J_tool_safety_policy():
-    """Test J: ToolSafetyPolicy identifies dangerous patterns and read-only operations."""
+def test_J_tool_safety_policy(tmp_path: Path):
+    """Test J: ToolSafetyPolicy identifies dangerous patterns, boundaries, and authorization."""
     # 1. Read-only classification
     assert ToolSafetyPolicy.is_read_only("terminal", "status") is True
     assert ToolSafetyPolicy.is_read_only("terminal", "diff") is True
@@ -306,3 +325,44 @@ def test_J_tool_safety_policy():
 
     unsafe_req = ToolRequest(tool_name="terminal", operation="exec", arguments={"command": "sudo rm -rf /"})
     assert ToolSafetyPolicy.check_request_safety(unsafe_req)[0] is False
+
+    # 4. Authorization resolution unit checks
+    auth_denied, reason = ToolSafetyPolicy.resolve_mutation_authorization(
+        context={}, arguments={"allow_mutations": True}
+    )
+    assert auth_denied is False
+    assert "Untrusted caller argument" in reason
+
+    auth_conflict, c_reason = ToolSafetyPolicy.resolve_mutation_authorization(
+        context={"allow_mutations": True}, arguments={"allow_mutations": False}
+    )
+    assert auth_conflict is False
+    assert "Conflicting mutation authorization" in c_reason
+
+    auth_ok, ok_reason = ToolSafetyPolicy.resolve_mutation_authorization(
+        context={"allow_mutations": True}, arguments={}
+    )
+    assert auth_ok is True
+    assert ok_reason is None
+
+    # 5. Repository boundary resolution
+    repo_dir = tmp_path / "test_repo"
+    repo_dir.mkdir()
+    outside_dir = tmp_path / "outside_repo"
+    outside_dir.mkdir()
+
+    resolved_root, r_err = ToolSafetyPolicy.resolve_and_validate_repo_root(
+        context_repo_path=str(repo_dir), argument_repo_path=str(outside_dir)
+    )
+    assert resolved_root is None
+    assert "conflicts with or escapes" in r_err
+
+    # 6. Nonexistent target path rejection
+    nonexistent_path = "/tmp/nonexistent_test_target_54321.txt"
+    is_valid_tgt, tgt_err = ToolSafetyPolicy.validate_terminal_command(
+        f"touch {nonexistent_path}",
+        repo_path=repo_dir,
+        allow_mutations=True,
+    )
+    assert is_valid_tgt is False
+    assert "escapes repository boundary" in tgt_err

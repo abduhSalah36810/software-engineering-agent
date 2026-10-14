@@ -1,18 +1,14 @@
 """
-Phase 5.1 — Sandboxed Terminal Capability.
+Phase 5.1 — Sandboxed Terminal Execution Capability (Hardened).
 
-Implements TerminalTool as a concrete BaseTool adapter.
-Executes controlled repository-scoped terminal commands while enforcing
-strict safety boundaries:
-  - Repository confinement: working directory and path targets must stay inside repo.
-  - Strict command allowlist: only approved executables are permitted.
-  - Mutation barrier: mutating commands require explicit allow_mutations=True authorization.
-  - Shell-free execution: commands are parsed into argument lists and executed with shell=False.
-  - Timeouts: bounded execution prevents runaway processes.
-  - Output limits: stdout/stderr accumulation is capped to prevent memory exhaustion.
-  - Structured results: non-zero exit codes are preserved without fabricating tool failure.
-
-Zero LLM. Zero MCP. Zero arbitrary shell access.
+Provides a controlled, repository-scoped terminal execution tool adapter:
+  - TerminalTool: BaseTool implementation that wraps subprocess execution.
+  - Strict Repository Boundary: Validates repository path against ALLOWED_REPO_ROOTS.
+  - Strict Mutation Barrier: Mutating commands require explicit trusted authorization.
+  - No Shell Invocation: subprocess.run(..., shell=False).
+  - Timeout Enforced: Hard execution ceiling.
+  - Output Bounded: Limits oversized stdout/stderr.
+  - Sanitized Environment: Strips secrets and dangerous execution-hijacking variables.
 """
 
 from __future__ import annotations
@@ -28,6 +24,7 @@ from src.tools.base import BaseTool
 from src.tools.models import ToolRequest, ToolResult
 from src.tools.security import ToolSafetyPolicy
 
+
 DEFAULT_TIMEOUT_SECONDS: float = 10.0
 MAX_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_MAX_OUTPUT_CHARS: int = 50_000
@@ -35,15 +32,34 @@ DEFAULT_MAX_OUTPUT_CHARS: int = 50_000
 # Sensitive environment variable keywords to exclude from subprocess execution
 SENSITIVE_ENV_KEYWORDS = {"TOKEN", "KEY", "SECRET", "PASS", "AUTH", "CRED"}
 
+# Dangerous execution-hijacking environment variables to always block
+DANGEROUS_ENV_VARS = {
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "BASH_ENV",
+    "ENV",
+}
+
 
 def _get_sanitized_env() -> dict[str, str]:
     """
-    Builds a sanitized environment dictionary excluding secrets.
+    Builds a sanitized environment dictionary excluding secrets and execution-hijacking variables.
     Preserves system and Python runtime paths.
     """
     safe_env = {}
     for k, v in os.environ.items():
         k_upper = k.upper()
+        if k in DANGEROUS_ENV_VARS or k_upper in DANGEROUS_ENV_VARS:
+            continue
         if any(keyword in k_upper for keyword in SENSITIVE_ENV_KEYWORDS):
             continue
         safe_env[k] = v
@@ -82,49 +98,48 @@ class TerminalTool(BaseTool):
                 error="Missing or invalid 'command' in arguments",
             )
 
-        # 3. Extract and validate repository path
-        repo_path = request.context.get("repo_path") or request.arguments.get("repo_path")
-        if not repo_path:
-            return ToolResult.create_failure(
-                tool_name=self.name,
-                operation=request.operation,
-                error="Repository path ('repo_path') must be provided in context or arguments",
-            )
+        # 3. Resolve and validate repository root from trusted context or allowed roots
+        context_repo = request.context.get("repo_path")
+        arg_repo = request.arguments.get("repo_path")
 
-        repo_root = Path(repo_path).resolve()
-        if not repo_root.exists() or not repo_root.is_dir():
+        repo_root, repo_err = ToolSafetyPolicy.resolve_and_validate_repo_root(
+            context_repo_path=context_repo,
+            argument_repo_path=arg_repo,
+        )
+        if repo_err or not repo_root:
             return ToolResult.create_failure(
                 tool_name=self.name,
                 operation=request.operation,
-                error=f"Repository path does not exist or is not a directory: {repo_path}",
+                error=f"Repository boundary violation: {repo_err}",
             )
 
         # 4. Resolve and validate effective working directory
-        cwd_rel = request.arguments.get("cwd")
-        if cwd_rel:
-            effective_cwd = (repo_root / cwd_rel).resolve()
-            if not effective_cwd.exists() or not effective_cwd.is_dir():
-                return ToolResult.create_failure(
-                    tool_name=self.name,
-                    operation=request.operation,
-                    error=f"Specified working directory does not exist: {cwd_rel}",
-                )
-            if not effective_cwd.is_relative_to(repo_root):
-                return ToolResult.create_failure(
-                    tool_name=self.name,
-                    operation=request.operation,
-                    error=f"Working directory escapes repository boundary: {cwd_rel}",
-                )
-        else:
-            effective_cwd = repo_root
+        cwd_arg = request.arguments.get("cwd")
+        effective_cwd, cwd_err = ToolSafetyPolicy.resolve_effective_cwd(repo_root, cwd_arg)
+        if cwd_err or not effective_cwd:
+            return ToolResult.create_failure(
+                tool_name=self.name,
+                operation=request.operation,
+                error=f"Working directory violation: {cwd_err}",
+            )
 
-        # 5. Safety policy verification
-        allow_mutations = bool(
-            request.context.get("allow_mutations") or request.arguments.get("allow_mutations")
+        # 5. Resolve trusted mutation authorization
+        allow_mutations, auth_err = ToolSafetyPolicy.resolve_mutation_authorization(
+            context=request.context,
+            arguments=request.arguments,
         )
+        if auth_err:
+            return ToolResult.create_failure(
+                tool_name=self.name,
+                operation=request.operation,
+                error=f"Authorization violation: {auth_err}",
+            )
+
+        # 6. Safety policy verification
         is_safe, safety_err = ToolSafetyPolicy.validate_terminal_command(
             cmd_str,
-            repo_path=str(repo_root),
+            repo_path=repo_root,
+            effective_cwd=effective_cwd,
             allow_mutations=allow_mutations,
         )
         if not is_safe:
@@ -144,7 +159,7 @@ class TerminalTool(BaseTool):
                 error=f"Failed to parse command syntax: {e}",
             )
 
-        # 6. Timeout resolution
+        # 7. Timeout resolution
         timeout_arg = request.arguments.get("timeout")
         if timeout_arg is not None:
             try:
@@ -164,13 +179,22 @@ class TerminalTool(BaseTool):
         else:
             timeout = DEFAULT_TIMEOUT_SECONDS
 
-        # 7. Output limit configuration
-        max_output_chars = int(request.arguments.get("max_output_chars", DEFAULT_MAX_OUTPUT_CHARS))
+        # 8. Output limit configuration
+        max_output_chars_arg = request.arguments.get("max_output_chars")
+        if max_output_chars_arg is not None:
+            try:
+                max_output_chars = int(max_output_chars_arg)
+                if max_output_chars <= 0:
+                    max_output_chars = DEFAULT_MAX_OUTPUT_CHARS
+            except (ValueError, TypeError):
+                max_output_chars = DEFAULT_MAX_OUTPUT_CHARS
+        else:
+            max_output_chars = DEFAULT_MAX_OUTPUT_CHARS
 
-        # 8. Sanitized environment
+        # 9. Sanitized environment
         env = _get_sanitized_env()
 
-        # 9. Controlled process execution (SHELL=FALSE STRICTLY ENFORCED)
+        # 10. Controlled process execution (SHELL=FALSE STRICTLY ENFORCED)
         start_time = time.monotonic()
         try:
             proc = subprocess.run(
@@ -227,7 +251,7 @@ class TerminalTool(BaseTool):
                 },
             )
 
-        # 10. Handle output bounding & truncation
+        # 11. Handle output bounding & truncation
         stdout = proc.stdout or ""
         stderr = proc.stderr or ""
         stdout_truncated = len(stdout) > max_output_chars
@@ -238,7 +262,7 @@ class TerminalTool(BaseTool):
         if stderr_truncated:
             stderr = stderr[:max_output_chars] + f"\n... [stderr truncated: {len(proc.stderr)} chars total]"
 
-        # 11. Return successful tool execution result
+        # 12. Return successful tool execution result
         # Non-zero process exit codes are preserved in metadata without fabricating tool failure.
         return ToolResult.create_success(
             tool_name=self.name,

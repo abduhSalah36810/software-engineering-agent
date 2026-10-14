@@ -440,6 +440,62 @@ class EngineeringMemoryStore:
                 result.append(r)
             return result
 
+    def count_decisions_by_validity(self, repo_name: str) -> dict[str, int]:
+        """
+        Count decisions grouped by current_validity using a dedicated SQL COUNT query.
+        Returns a dict of validity status -> count, e.g. {'VALID': 10, 'REQUIRES_VERIFICATION': 2}.
+        """
+        canonical = get_canonical_repo_id(repo_name)
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT COALESCE(current_validity, 'VALID') as validity, COUNT(*) as cnt
+                FROM decisions
+                WHERE repo_name = ?
+                GROUP BY current_validity
+                """,
+                (repo_name,),
+            ).fetchall()
+            if not rows and canonical != repo_name:
+                rows = conn.execute(
+                    """
+                    SELECT COALESCE(current_validity, 'VALID') as validity, COUNT(*) as cnt
+                    FROM decisions
+                    WHERE repo_name = ?
+                    GROUP BY current_validity
+                    """,
+                    (canonical,),
+                ).fetchall()
+            return {row["validity"]: row["cnt"] for row in rows}
+
+    def count_investigations_by_validity(self, repo_name: str) -> dict[str, int]:
+        """
+        Count investigations grouped by current_validity using a dedicated SQL COUNT query.
+        Returns a dict of validity status -> count, e.g. {'VALID': 25, 'REQUIRES_VERIFICATION': 1}.
+        """
+        canonical = get_canonical_repo_id(repo_name)
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT COALESCE(current_validity, 'VALID') as validity, COUNT(*) as cnt
+                FROM investigations
+                WHERE repo_name = ?
+                GROUP BY current_validity
+                """,
+                (repo_name,),
+            ).fetchall()
+            if not rows and canonical != repo_name:
+                rows = conn.execute(
+                    """
+                    SELECT COALESCE(current_validity, 'VALID') as validity, COUNT(*) as cnt
+                    FROM investigations
+                    WHERE repo_name = ?
+                    GROUP BY current_validity
+                    """,
+                    (canonical,),
+                ).fetchall()
+            return {row["validity"]: row["cnt"] for row in rows}
+
     # ─── History & Identity ──────────────────────────────────────────────────
 
     def has_engineering_history(self, repo_identity: str) -> bool:
